@@ -59,6 +59,8 @@ through `Stimulus` to apply defaults instead of assuming every key is present.
 .venv\Scripts\python.exe -m pip check
 node --check static/app.js
 node --check static/preview.js
+node --check static/lifetime.js
+node tests/test_revision.cjs
 ```
 
 Node is needed only for the JavaScript checks, not app operation. If the usual
@@ -100,3 +102,7 @@ The supported launcher is `python -m well24.launcher`. Direct
 manually. No browser JS timer is used for liveness, so ordinary background-tab
 timer throttling does not end runs. Page discard or connection loss still does.
 The 3-second disconnect grace period is not a physical emergency-stop guarantee.
+
+UI/status responses use `Cache-Control: no-store`; launcher URLs and first-party
+script URLs also bypass older cached copies. `static/revision.js` owns the UI
+revision check and removes only its own obsolete warning after versions match.

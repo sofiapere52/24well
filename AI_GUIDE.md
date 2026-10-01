@@ -43,7 +43,8 @@ module/test pair next; do not search generated `data/` or `.venv/` directories.
 Add a focused regression test for a behavior bug. Run the full Python suite and
 relevant JS checks using `docs/DEVELOPMENT.md`. Update the human docs when behavior
 or setup changes. If changing the browser/server revision, update BOTH
-`Engine.status().app_revision` and the corresponding check in `static/app.js`.
+`Engine.status().app_revision` and `UI_REVISION` in `static/revision.js`, plus the asset query versions in
+`static/index.html`. The app checks this shared browser constant.
 Report what was actually tested and what remains unverified. Passing simulation
 does not establish physical safety, electrical accuracy or real-time performance.
 

@@ -8,6 +8,24 @@ from fastapi.testclient import TestClient
 from well24.app import create_app
 from well24.engine import Engine
 from well24.models import Stimulus
+from well24.launcher import browser_url
+
+
+def test_browser_launch_bypasses_previously_cached_page():
+    first, second = browser_url(), browser_url()
+    assert first.startswith('http://127.0.0.1:8002/?launch=')
+    assert first != second
+
+
+def test_interface_and_status_are_not_cached(tmp_path):
+    with TestClient(create_app(tmp_path)) as client:
+        for path in ('/', '/app.js', '/revision.js', '/api/status'):
+            response = client.get(path)
+            assert response.status_code == 200
+            assert response.headers['cache-control'] == 'no-store'
+        html = client.get('/').text
+        assert '/app.js?v=' in html
+        assert html.index('/revision.js?v=') < html.index('/app.js?v=')
 
 
 def test_restart_selects_latest_scan_by_timestamp(tmp_path):

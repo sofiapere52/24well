@@ -71,8 +71,9 @@ entry. Queues never resume automatically after restart.
 - A missing `.venv` requires installation above. A busy port usually means a
   server is already open. The launcher reopens an existing managed server. An
   older server must be stopped once before the new launcher can take over.
-- A revision mismatch requires stopping/unloading, restarting the server and
-  refreshing the page. Updating files does not update a running Python process.
+- A revision mismatch first needs Ctrl+F5 to refresh the browser interface. If
+  it remains, stop/unload and restart the launcher. Updating files does not
+  update a running Python process. Normal launches now bypass cached UI files.
 - A physical lock requires acceptance evidence. A communication or logging
   fault requires resolving the cause and reconnecting, not bypassing a guard.
 - Saved-file opening uses Windows file associations. Close a record in Excel

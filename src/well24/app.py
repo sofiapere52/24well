@@ -81,7 +81,11 @@ def create_app(data_dir=None, browser_lifetime=None):
             if origin and origin!=str(request.base_url).rstrip("/"):
                 from fastapi.responses import JSONResponse
                 return JSONResponse({"detail":"Cross-origin control requests are not allowed"},status_code=403)
-        return await call_next(request)
+        response = await call_next(request)
+        # The UI controls instruments: never reuse a stale page, script or
+        # status response after the local server has been upgraded/restarted.
+        response.headers['Cache-Control'] = 'no-store'
+        return response
 
     @app.exception_handler(ValueError)
     async def invalid(request,exc):

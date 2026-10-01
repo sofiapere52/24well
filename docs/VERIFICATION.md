@@ -2,6 +2,16 @@
 
 This record distinguishes software verification from physical acceptance.
 
+## Cached interface and stale warning fix — 2026-10-01
+
+The live server and disk interface both reported r6 while a browser displayed a
+restart warning. Added no-store response/fetch policies, unique launcher page
+URLs, versioned script URLs, and warning recovery that preserves unrelated errors.
+203 Python tests passed (10.88 s), including cache headers and launch URLs.
+Node warning-recovery checks and app syntax checks passed. Reopened the launcher
+and inspected a fresh browser page: the error element was empty and current
+device/queue status rendered. The temporary verification tab was then closed.
+
 ## Browser-owned server lifetime — 2026-10-01
 
 The normal launchers now use `well24.launcher`, open the browser only after the

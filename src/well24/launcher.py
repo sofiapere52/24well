@@ -4,6 +4,7 @@ import json
 import socket
 import urllib.request
 import webbrowser
+import uuid
 
 import uvicorn
 
@@ -13,13 +14,18 @@ from .browser_lifetime import BrowserLifetime
 URL = 'http://127.0.0.1:8002'
 
 
+def browser_url():
+    # Also bypass pages cached before the server started sending no-store.
+    return URL + '/?launch=' + uuid.uuid4().hex
+
+
 def open_existing():
     """Only reuse a server that explicitly advertises browser-owned lifetime."""
     try:
         with urllib.request.urlopen(URL + '/api/status', timeout=3) as response:
             status = json.load(response)
         if status.get('browser_managed') is True:
-            webbrowser.open(URL)
+            webbrowser.open(browser_url())
             return True
     except (OSError, ValueError):
         pass
@@ -38,7 +44,7 @@ async def serve(sock):
         while not server.started and not server.should_exit:
             await asyncio.sleep(.05)
         if server.started and not server.should_exit:
-            await asyncio.to_thread(webbrowser.open, URL)
+            await asyncio.to_thread(webbrowser.open, browser_url())
 
     browser_task = asyncio.create_task(open_when_ready())
     try:
