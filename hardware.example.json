@@ -1,0 +1,22 @@
+{
+  "hardware_accepted": false,
+  "routing_verified": false,
+  "limits_verified": false,
+  "calibration_accepted": false,
+  "topology_verified": false,
+  "triggers_verified": false,
+  "well_switching_verified": false,
+  "nonsinusoidal_verified": false,
+  "scan_accepted": false,
+  "differential_wiring_verified": false,
+  "scan_current_validated": false,
+  "acceptance_record": "",
+  "arduino_port": "",
+  "generators": {"1": "", "2": ""},
+  "scope_serial": "",
+  "min_frequency_hz": null,
+  "max_frequency_hz": null,
+  "max_current_ma": null,
+  "max_output_peak_v": null,
+  "scan_quality": {"min_current_a": 0.000001, "min_snr_db": 20, "max_drift": 0.1}
+}

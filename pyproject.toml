@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "well24"
+version = "0.1.0"
+description = "Offline 24-well stimulation and impedance acquisition"
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.115", "uvicorn>=0.32", "numpy>=2", "pydantic>=2.9", "pyserial>=3.5"]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "httpx>=0.27"]
+hardware = ["python-libtiepie>=1.5"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
