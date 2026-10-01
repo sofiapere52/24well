@@ -79,3 +79,7 @@ dialog{border:1px solid #92b6a3;border-radius:10px;padding:24px;color:#183e35}di
 #prediction #estimate{min-height:28px;padding:5px 8px;font-size:11px}
 @media(max-width:1100px){.parameters-layout{grid-template-columns:1fr}.parameters-layout aside{display:grid;grid-template-columns:1fr 1fr;align-items:start;gap:14px}}
 @media(max-width:650px){.parameters-layout aside{grid-template-columns:1fr}#stimSettings>.form-row{gap:12px;margin-bottom:18px}}
+
+/* Author credit stays on the right and wraps below the title on small screens. */
+.header-credit{font-size:12px;color:#d2e5da;white-space:nowrap}
+@media(max-width:650px){header{flex-wrap:wrap}.header-credit{flex-basis:100%;text-align:right}}
