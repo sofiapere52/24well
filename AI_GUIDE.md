@@ -33,6 +33,10 @@ module/test pair next; do not search generated `data/` or `.venv/` directories.
   shunt once in prediction. Live scans use measured branch current directly.
 - Electric field is V/m: divide well volts by 0.009 m. Do not label it V/mm.
 - Source and calibration are in Git; runtime records and hardware.json are not.
+- Use `python -m well24.launcher` for normal use. The last GUI connection closing
+  aborts operations and exits after 3 seconds; refreshes can reconnect in that
+  window. Do not replace connection tracking with background-tab JS timers.
+  Bind the port before Engine startup so duplicate launches cannot edit records.
 
 ## Finish a change
 

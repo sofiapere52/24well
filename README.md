@@ -9,7 +9,7 @@ Contributors and AI assistants: read [DEVELOPMENT.md](docs/DEVELOPMENT.md) and
 [AI_GUIDE.md](AI_GUIDE.md) before editing. The [verification record](docs/VERIFICATION.md)
 separates current checks from historical checks and unverified hardware behavior.
 
-Double-click `Start_24well.vbs`, or run `run_local.bat`, then open http://127.0.0.1:8002. Leave the server running. Choose Simulation and Connect devices to test without instruments. Both single-channel configurations are available in simulation.
+Double-click `Start_24well.vbs`, or run `run_local.bat`, the launcher opens http://127.0.0.1:8002 when ready. Closing the last GUI tab/window stops active operations and shuts down the server after a 3-second refresh grace period. Keep a GUI tab open during a run. Choose Simulation and Connect devices to test without instruments. Both single-channel configurations are available in simulation.
 
 On the original workstation, the installed `.venv` contains the application dependencies; it is excluded from Git. Normal operation uses local JavaScript, bundled uPlot 1.6.30, Python and bundled calibration JSON; it neither invokes MATLAB nor fetches plotting assets. A fresh installation requires Python 3.11+ and an editable source installation (see SETUP). Vendor USB drivers must be available before physical acceptance. Do not move this virtual environment to another computer as an installer. A standalone wheel is not a supported distribution: static assets and calibration live alongside the source tree.
 

@@ -6,7 +6,5 @@ if not exist ".venv\Scripts\python.exe" (
   pause
   exit /b 1
 )
-echo Open http://127.0.0.1:8002 in your browser.
-echo Closing this server stops operation. The screen may turn off during use.
-".venv\Scripts\python.exe" -m uvicorn well24.app:app --host 127.0.0.1 --port 8002
-pause
+".venv\Scripts\python.exe" -m well24.launcher
+if errorlevel 1 pause

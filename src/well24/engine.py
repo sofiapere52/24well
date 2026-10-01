@@ -114,7 +114,7 @@ class Engine:
 
     def status(self):
         with self.lock:
-            return {"app_revision":"20260930-r5","mode":self.mode,"devices":[{"channel":ch,"serial":g.serial,"name":getattr(g,"name","TiePie engineering HS5"),"busy":ch in self.workers, "state":self.device_state(ch)} for ch,g in self.generators.items()],
+            return {"app_revision":"20261001-r6","mode":self.mode,"devices":[{"channel":ch,"serial":g.serial,"name":getattr(g,"name","TiePie engineering HS5"),"busy":ch in self.workers, "state":self.device_state(ch)} for ch,g in self.generators.items()],
                     "queue_summary":summarize(self.jobs,{key:time.monotonic()-value for key,value in self.run_clocks.items()}),
                     "filters":dict(self.router.filters) if self.router and not self.router.failed else {},
                     "jobs":json.loads(json.dumps([j for j in self.jobs if not j.get('archived')])),"queue_enabled":sorted(self.queue_enabled),

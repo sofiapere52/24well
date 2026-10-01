@@ -7,6 +7,9 @@ from a complete source checkout on Windows. There is no frontend build step.
 
 - `src/well24/app.py`: FastAPI schemas, endpoints, local-origin mutation check,
   static files, and engine lifespan. `/docs` and `/openapi.json` describe the API.
+- `launcher.py` and `browser_lifetime.py`: bind before startup, open the browser,
+  count live server-sent-event connections, and stop on last-tab disconnect.
+  `static/lifetime.js` opens/closes that connection on page show/hide.
 - `models.py`: validated protocol/scan parameters and shared timing arithmetic.
 - `engine.py`: hardware acceptance, reservations, queue dispatcher, manual runs,
   scan workers, cancellation, recovery and cleanup. `Engine.lock` serializes
@@ -91,3 +94,9 @@ Commit source, tests, docs, reference resources, example configuration and bundl
 calibration. Never commit `.venv`, caches, generated builds, runtime records or
 local `hardware.json`. Review `git diff --cached` and `git status` before pushing.
 There is no automated deployment or firmware upload tied to a Git push.
+
+The supported launcher is `python -m well24.launcher`. Direct
+`uvicorn well24.app:app` is an unmanaged developer server and must be stopped
+manually. No browser JS timer is used for liveness, so ordinary background-tab
+timer throttling does not end runs. Page discard or connection loss still does.
+The 3-second disconnect grace period is not a physical emergency-stop guarantee.

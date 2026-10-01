@@ -2,6 +2,22 @@
 
 This record distinguishes software verification from physical acceptance.
 
+## Browser-owned server lifetime — 2026-10-01
+
+The normal launchers now use `well24.launcher`, open the browser only after the
+server is ready, and stop operations/shut down after the last GUI connection
+closes (3-second refresh grace). An unopened GUI times out after 60 seconds.
+Duplicate starts bind-check before Engine startup and reuse managed servers.
+All 201 Python tests passed (11.13 s); the new lifecycle script and updated app
+script passed Node syntax checks. The existing TestClient deprecation remains.
+
+Tests exercise a real Uvicorn subprocess with two streamed browser connections:
+one disconnect leaves it running; the final disconnect aborts a simulated run,
+saves its aborted state and exits the process. Additional tests cover refresh,
+startup timeout, stop-error handling and duplicate-launch database isolation.
+This is software/network verification; no physical output or browser-vendor
+sleep/discard behavior is qualified by these tests.
+
 ## Project review — 2026-10-01
 
 197 Python tests passed (6.93 s) after review fixes. `pip check` reported no

@@ -2,9 +2,10 @@ import os
 import json
 from datetime import datetime
 import uuid
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Literal
@@ -52,13 +53,22 @@ class SavedFile(StrictModel):
     name: str
 
 
-def create_app(data_dir=None):
+def create_app(data_dir=None, browser_lifetime=None):
     @asynccontextmanager
     async def lifespan(app):
         app.state.engine=Engine(data_dir or os.getenv("WELL24_DATA_DIR"))
+        monitor = None
+        if browser_lifetime is not None:
+            browser_lifetime.start()
+            monitor = asyncio.create_task(browser_lifetime.watch(app.state.engine))
         try:
             yield
         finally:
+            if browser_lifetime is not None:
+                browser_lifetime.stopping = True
+            if monitor is not None:
+                monitor.cancel()
+                await asyncio.gather(monitor, return_exceptions=True)
             app.state.engine.close()
 
     app=FastAPI(title="24 WELL GUI",lifespan=lifespan)
@@ -84,7 +94,29 @@ def create_app(data_dir=None):
         return JSONResponse({"detail":str(exc)},status_code=409)
 
     @app.get("/api/status")
-    def status(request: Request): return request.app.state.engine.status()
+    def status(request: Request):
+        return {**request.app.state.engine.status(), 'browser_managed': browser_lifetime is not None}
+
+    @app.get('/api/browser-session')
+    async def browser_session(request: Request):
+        if browser_lifetime is None:
+            return Response(status_code=204)
+        origin = request.headers.get('origin')
+        if (request.headers.get('sec-fetch-site') == 'cross-site'
+                or origin and origin != str(request.base_url).rstrip('/')):
+            raise HTTPException(403, 'Browser session must use the local GUI')
+
+        async def stream():
+            connection = browser_lifetime.attach()
+            try:
+                while not browser_lifetime.stopping:
+                    yield 'data: connected\n\n'
+                    await asyncio.sleep(1)
+            finally:
+                browser_lifetime.detach(connection)
+
+        return StreamingResponse(stream(), media_type='text/event-stream',
+                                 headers={'Cache-Control': 'no-store'})
 
     @app.post("/api/keep-awake")
     def keep_awake(body: Awake,request: Request):

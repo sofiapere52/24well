@@ -27,8 +27,12 @@ same virtual-environment Python, the vendor USB drivers, and a reviewed local
 `hardware.json`. The example profile intentionally prevents physical operation.
 Do not enable acceptance flags just to make a test pass.
 
-Open http://127.0.0.1:8002. The VBS launcher opens this address automatically;
-the batch launcher prints it. Only run one server against a given data directory.
+Both launchers open http://127.0.0.1:8002 after the server is ready. Closing the
+last GUI tab/window stops operations and shuts down the server after a 3-second
+grace period; refreshing/reopening within that period preserves the session.
+Closing one of several GUI tabs leaves the server running. If no GUI connects
+within 60 seconds of startup, the server exits. Keep a GUI tab open during runs.
+Browser crashes or discarded tabs also disconnect the session and may stop runs. Only run one server against a given data directory.
 Keep the server terminal open. Do not use multiple Uvicorn workers or automatic
 reload when instruments are connected.
 
@@ -65,7 +69,8 @@ entry. Queues never resume automatically after restart.
 - For an isolated dry run, set `$env:WELL24_DATA_DIR = "$PWD/data/my-simulation"`
   before launching. This changes records, not calibration or hardware profiles.
 - A missing `.venv` requires installation above. A busy port usually means a
-  server is already open; do not start a second process against the same records.
+  server is already open. The launcher reopens an existing managed server. An
+  older server must be stopped once before the new launcher can take over.
 - A revision mismatch requires stopping/unloading, restarting the server and
   refreshing the page. Updating files does not update a running Python process.
 - A physical lock requires acceptance evidence. A communication or logging
