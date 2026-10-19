@@ -48,6 +48,8 @@ dialog{border:1px solid #92b6a3;border-radius:10px;padding:24px;color:#183e35}di
 .well-selection-row .well-controls{margin:0;min-height:35px}
 .button-link{display:inline-flex;align-items:center;min-height:34px;border:1px solid #a6bfb1;border-radius:4px;padding:8px;font-size:12px;font-weight:600;text-decoration:none;background:white}
 .button-link:hover{background:#e2efe6}
+.notice{color:#8a5a00;font-weight:600}
+.scope-row{margin-bottom:8px}.scope-row button{margin-left:8px}.scan-downloads{margin:0;gap:6px}
 
 .parameters-layout{align-items:start}.parameters-layout form{display:contents}.parameters-layout .well-settings{grid-column:1/-1}.parameters-layout #stimSettings{grid-column:1}.parameters-layout aside{grid-column:2;grid-row:2}
 
@@ -57,7 +59,7 @@ dialog{border:1px solid #92b6a3;border-radius:10px;padding:24px;color:#183e35}di
 .panel-title{font-size:16px;color:#174c38}.scan-content{margin-top:16px}#entryParams{max-height:300px;overflow:auto;font-size:12px}#entryError{color:#a02d38}#queueDetails{max-width:650px;width:90%}#addQueueStatus{font-size:12px;color:#215b42}.file-open{border:0;background:none;text-decoration:underline;text-align:left;padding:3px;min-height:24px;font-size:12px}
 @media(max-width:1100px){.parameters-layout #stimSettings,.parameters-layout aside{grid-column:1;grid-row:auto}.parameters-layout aside{display:grid;grid-template-columns:1fr 1fr}}@media(max-width:850px){.device-queues{grid-template-columns:1fr}}@media(max-width:650px){.parameters-layout aside{grid-template-columns:1fr}}
 
-#durationControl{grid-template-columns:minmax(160px,1fr) 2fr;align-items:center}.queue-scroll td:last-child{display:flex;gap:4px;height:35px}.queue-scroll .protocol-cell{max-width:130px}
+#durationControl{grid-template-columns:minmax(160px,1fr) 2fr;align-items:center}.queue-scroll td:last-child{display:flex;gap:4px;height:35px}.queue-scroll .protocol-cell{max-width:210px}
 @media(max-width:1100px){.parameters-layout #stimSettings{height:auto}}
 
 /* Compact summary column: align its top/bottom with the parameter card. */
@@ -83,3 +85,7 @@ dialog{border:1px solid #92b6a3;border-radius:10px;padding:24px;color:#183e35}di
 /* Author credit stays on the right and wraps below the title on small screens. */
 .header-credit{font-size:12px;color:#d2e5da;white-space:nowrap}
 @media(max-width:650px){header{flex-wrap:wrap}.header-credit{flex-basis:100%;text-align:right}}
+/* Queue tables fit their box: fixed columns, wrapping text, no sideways scroll. */
+.queue-scroll{overflow-x:hidden}.queue-scroll table{width:100%;table-layout:fixed;font-size:11px}.queue-scroll th{white-space:normal;padding:4px 3px}.queue-scroll td{white-space:normal;overflow-wrap:break-word;height:auto;padding:4px 3px}.queue-scroll .protocol-cell{max-width:none}.queue-scroll th:nth-child(1){width:9%}.queue-scroll th:nth-child(2){width:24%}.queue-scroll th:nth-child(3){width:20%}.queue-scroll th:nth-child(4){width:10%}.queue-scroll th:nth-child(5){width:14%}.queue-scroll th:nth-child(6){width:7%}.queue-scroll th:nth-child(7){width:16%}.queue-scroll td:last-child{flex-direction:column;align-items:stretch;gap:3px;height:auto}.queue-scroll td:last-child button{white-space:nowrap;padding:2px 4px;min-height:22px;font-size:10px}.queue-scroll .status-chip{white-space:nowrap;font-size:10px;padding:2px 4px}
+/* Live log fills its whole box (the row is as tall as Instrument status). */
+.live-log{display:flex;flex-direction:column}.live-log #log{flex:1 1 0;height:auto;min-height:116px}

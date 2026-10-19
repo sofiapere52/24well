@@ -41,6 +41,9 @@ class MockGenerator:
         wait(cancel,.005)
         return time.monotonic()
 
+    def enable_output(self):
+        pass
+
     def start(self, continuous=False):
         self.running=True
         self.started=time.monotonic()
@@ -131,10 +134,17 @@ class HardwareGenerator:
         return edge
 
     @instrument_lock
+    def enable_output(self):
+        # The HS5 output relay takes ~0.3 s to close (measured 2026-10-19), longer than the
+        # start-deadline budget. Close it while stopped and the well is disconnected.
+        if not self.gen.output_enable:
+            self.gen.output_enable=True
+
+    @instrument_lock
     def start(self,continuous=False):
         if continuous:
             self.gen.mode=self.lt.GM_CONTINUOUS
-        self.gen.output_enable=True
+        self.enable_output()
         self.gen.start()
 
     @instrument_lock
@@ -156,6 +166,8 @@ class HardwareGenerator:
 
 
 class MockScope:
+    serial="SIM-WS6"
+
     def capture(self,scan,assignments,calibration,cancel):
         rate=scan.sample_rate_hz
         n=round(scan.cycles/scan.frequency_hz*rate)
@@ -184,9 +196,13 @@ class HardwareScope:
     def __init__(self,lt,scope,serial):
         self.lt,self.scope,self.serial=lt,scope,serial
 
+    def _stop(self):
+        # The WS6 reports "Unsuccessful" when stop() is called while not measuring.
+        if self.scope is not None and self.scope.is_running: self.scope.stop()
+
     def capture(self,scan,assignments,calibration,cancel):
         s,lt=self.scope,self.lt
-        s.stop();s.measure_mode=lt.MM_BLOCK
+        self._stop();s.measure_mode=lt.MM_BLOCK
         used={}
         for stim in assignments:
             pair=scan.pairs[stim]
@@ -214,15 +230,22 @@ class HardwareScope:
         if int(s.record_length)!=n: raise RuntimeError("Scope changed requested record length")
         s.pre_sample_ratio=0
         s.trigger.timeout=0
-        s.start()
-        deadline=time.monotonic()+n/rate+10
-        try:
-            while not s.is_data_ready:
-                if time.monotonic()>deadline: raise RuntimeError("Scope acquisition timed out")
-                wait(cancel,.005)
-            raw=s.get_data()
-        finally:
-            s.stop()
+        # Auto-ranging adjusts after each block, so a single block would use the range left by
+        # the previous well. Repeat (at most 3 blocks) until the ranges stop changing.
+        ranges=None
+        for attempt in range(3):
+            s.start()
+            deadline=time.monotonic()+n/rate+10
+            try:
+                while not s.is_data_ready:
+                    if time.monotonic()>deadline: raise RuntimeError("Scope acquisition timed out")
+                    wait(cancel,.005)
+                raw=s.get_data()
+            finally:
+                self._stop()
+            settled=[float(s.channels[i].range) for i in sorted(used)]
+            if settled==ranges: break
+            ranges=settled
         if any(len(raw[i])!=n for i in used): raise RuntimeError("Incomplete simultaneous acquisition")
         t=np.arange(n)/rate
         data={}
@@ -237,7 +260,7 @@ class HardwareScope:
                        "actual_input_ranges_v":{str(i+1):float(s.channels[i].range) for i in used}}
 
     def close(self):
-        self.scope.stop();self.scope=None
+        self._stop();self.scope=None
 
 
 def discover(profile):
@@ -265,14 +288,31 @@ def discover(profile):
 
 
 def open_scope(profile):
+    """USB by default. For WiFi/LAN set scope_address (the WiFiScope's IP address) in hardware.json."""
     import libtiepie as lt
     serial=profile.get("scope_serial")
-    if not serial: raise RuntimeError("Scope serial number must be explicitly configured")
+    address=str(profile.get("scope_address") or "").strip()
+    lt.network.auto_detect_enabled=False
+    if address:
+        try: server=lt.network.servers.get_by_url(address)  # already registered by an earlier connect
+        except Exception: server=None
+        try:
+            server=server or lt.network.servers.add(address)
+            if server is None: raise RuntimeError("address not accepted")
+            server.connect()
+        except Exception as exc:
+            raise RuntimeError(f"No network connection to the scope at {address}: {exc}. Check that it is in "
+                               "WiFi/LAN mode, on the same network as this PC, and that the address is correct.") from exc
     lt.device_list.update()
+    if not serial:
+        found=[str(i.serial_number) for i in lt.device_list if i.can_open(lt.DEVICETYPE_OSCILLOSCOPE)]
+        raise RuntimeError("Set scope_serial in hardware.json. Oscilloscopes found: "+(", ".join(found) or "none"))
     for item in lt.device_list:
         if str(item.serial_number)==str(serial) and item.can_open(lt.DEVICETYPE_OSCILLOSCOPE):
             scope=item.open_oscilloscope()
             if not scope.measure_modes & lt.MM_BLOCK:
                 raise RuntimeError("Block acquisition unavailable")
-            return HardwareScope(lt,scope,str(serial))
-    raise RuntimeError("Configured WS6 unavailable or already owned by another application")
+            found=HardwareScope(lt,scope,str(serial));found.via=f"WiFi {address}" if address else "USB"
+            return found
+    raise RuntimeError(f"Scope {serial} not found over {'the network at '+address if address else 'USB'}, "
+                       "or another program (e.g. TiePie Multi Channel) already has it open")

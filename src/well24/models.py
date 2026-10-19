@@ -2,6 +2,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 WELLS = tuple(f"{r}{c}" for r in "ABCD" for c in range(1, 7))
+MIN_REPEAT_GAP_S = .1
 
 
 class StrictModel(BaseModel):
@@ -14,7 +15,7 @@ class Stimulus(StrictModel):
     mode: Literal["control", "tis_like"] = "control"
     shape: Literal["sine", "triangle", "square", "ramp"] = "sine"
     frequency_hz: float = Field(default=100, gt=0)
-    delta_hz: float = Field(default=10, gt=0)
+    delta_hz: float | None = Field(default=None, ge=0)
     amplitude_ma: float = Field(default=1, gt=0, le=10)
     pulse_width_s: float | None = Field(default=None, gt=0)
     on_s: float = Field(default=1, gt=0)
@@ -44,6 +45,13 @@ class Stimulus(StrictModel):
             raise ValueError("Pulse width must be shorter than one period")
         if self.mode == "tis_like" and self.shape != "sine":
             raise ValueError("TIS-like uses sine components")
+        # Control has no amplitude modulation: never store a stale Δf with it.
+        if self.mode == "control":
+            self.delta_hz = 0.
+        elif self.delta_hz is None:
+            self.delta_hz = 10.
+        elif self.delta_hz <= 0:
+            raise ValueError("TIS-like requires a positive frequency difference Δf")
         if self.off_s is not None:
             if len(self.wells)!=2: raise ValueError('A single OFF period is only used for well-switching')
             if self.off_s < self.on_s: raise ValueError('Cannot implement switching mode if OFF period is shorter than ON period')
@@ -78,11 +86,25 @@ class Stimulus(StrictModel):
         return sum(max(0,math.floor((self.duration_s-lead-(i+1)*self.on_s+1e-9)/self.cycle_s)+1) for i in indices)
 
 
+def require_repeat_gap(p):
+    # Block deadlines share one fixed origin, so stop/route/log time between
+    # back-to-back blocks accumulates as lateness until the deadline guard trips.
+    if len(p.wells) != 1: return
+    blocks = p.block_count()
+    if (blocks is None or blocks > 1) and p.pre_s + p.post_s < MIN_REPEAT_GAP_S - 1e-9:
+        raise ValueError(f'Repeated blocks need at least {MIN_REPEAT_GAP_S:g} s of pre-off + post-off between them '
+                         'for switching and logging; otherwise each block starts later until the run stops. '
+                         'Increase the pre- or post-off period, or use 1 repetition.')
+
+
 class ScopePair(StrictModel):
     monitor: int = Field(ge=1, le=4)
     voltage: int = Field(ge=1, le=4)
     monitor_scale: float = Field(default=1, gt=0)
     voltage_scale: float = Field(default=1, gt=0)
+    # "ds5": DS5 rear-panel current monitor (1 V = 10 mA, total stimulator current).
+    # "pcb": PCB current-sense resistor (monitor_resistor_ohm in hardware.json).
+    current_source: Literal["ds5", "pcb"] = "pcb"
 
 
 class Scan(StrictModel):

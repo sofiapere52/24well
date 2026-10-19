@@ -68,9 +68,11 @@ def test_dispatched_job_cannot_be_cancelled_or_archived(tmp_path):
 def test_rejected_hardware_connection_leaves_disconnected(tmp_path, monkeypatch):
     (tmp_path / 'hardware.json').write_text('{}', encoding='utf-8')
     monkeypatch.setattr('well24.engine.ROOT', tmp_path)
+    monkeypatch.setattr('well24.engine.discover', lambda profile: {})
+    monkeypatch.setattr('well24.engine.visible_tiepie_devices', lambda: [])
     engine = Engine(tmp_path / 'records')
     try:
-        with pytest.raises(ValueError, match='locked'):
+        with pytest.raises(ValueError, match='not available'):
             engine.connect('hardware')
         assert engine.mode == 'disconnected'
         assert not engine.generators and engine.router is None

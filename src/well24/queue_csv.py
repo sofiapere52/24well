@@ -1,7 +1,7 @@
 """Editable protocol templates, distinct from the daily execution audit CSV."""
 import csv
 import io
-from .models import Stimulus
+from .models import Stimulus, require_repeat_gap
 
 FIELDS = ['format_version', *Stimulus.model_fields]
 
@@ -44,6 +44,7 @@ def decode(content):
             row['channel'] = int(row['channel'])
             p = Stimulus(**row)
             if p.duration_s is None: raise ValueError('Queue needs repetitions or a finite stimulation time')
+            require_repeat_gap(p)
             entries.append(p)
             if len(entries) > 1000: raise ValueError('At most 1000 entries may be imported')
         except (ValueError, TypeError) as exc:

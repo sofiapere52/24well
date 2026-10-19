@@ -80,6 +80,7 @@ def test_connect_does_not_enqueue(tmp_path,monkeypatch):
         e.connect('simulation');assert e.jobs==[]
         # Hardware connection fails closed without a profile; it cannot seed a job.
         monkeypatch.setattr('well24.engine.discover',lambda profile:{})
+        monkeypatch.setattr('well24.engine.visible_tiepie_devices',lambda:[])
         try:e.connect('hardware')
         except (ValueError,RuntimeError):pass
         assert e.jobs==[]

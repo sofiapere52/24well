@@ -1,4 +1,4 @@
-"""Track live GUI connections without browser timers or unload-only shutdown."""
+"""Close the local server once no GUI tab is open and nothing is running."""
 import asyncio
 import time
 
@@ -12,6 +12,8 @@ class BrowserLifetime:
         self.connections = set()
         self.seen_browser = False
         self.empty_since = None
+        self.busy_until = float('-inf')
+        self.shutdown_requested = False
         self.stopping = False
 
     def start(self):
@@ -31,13 +33,22 @@ class BrowserLifetime:
         if not self.connections and self.empty_since is None:
             self.empty_since = self.clock()
 
-    def expired(self):
+    def request_shutdown(self):
+        self.shutdown_requested = True
+
+    def expired(self, busy=False):
+        # Browsers may sleep or discard background tabs during long protocols,
+        # so a missing tab alone must never stop output.
+        now = self.clock()
+        if busy:
+            self.busy_until = now
+            return False
         timeout = self.grace_s if self.seen_browser else self.startup_s
         return (not self.connections and self.empty_since is not None
-                and self.clock() - self.empty_since >= timeout)
+                and now - max(self.empty_since, self.busy_until) >= timeout)
 
     async def watch(self, engine):
-        while not self.expired():
+        while not self.shutdown_requested and not self.expired(await asyncio.to_thread(engine.busy)):
             await asyncio.sleep(.2)
         self.stopping = True
         # Abort operations before asking Uvicorn to finish requests and invoke

@@ -99,9 +99,11 @@ There is no automated deployment or firmware upload tied to a Git push.
 
 The supported launcher is `python -m well24.launcher`. Direct
 `uvicorn well24.app:app` is an unmanaged developer server and must be stopped
-manually. No browser JS timer is used for liveness, so ordinary background-tab
-timer throttling does not end runs. Page discard or connection loss still does.
-The 3-second disconnect grace period is not a physical emergency-stop guarantee.
+manually. The browser connection only decides when an idle server may exit:
+`Engine.busy()` (workers, scan or enabled queue) keeps it alive, so page discard,
+sleep or connection loss never ends a run. `POST /api/shutdown` (launcher only)
+stops operations and exits; it refuses while busy unless `stop_running` is true.
+Tab closure is not an emergency stop; use STOP.
 
 UI/status responses use `Cache-Control: no-store`; launcher URLs and first-party
 script URLs also bypass older cached copies. `static/revision.js` owns the UI

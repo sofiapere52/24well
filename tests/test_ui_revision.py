@@ -50,7 +50,7 @@ def test_preview_zoom_beyond_four_repetitions():
     assert zoom['time'][0]==50 and zoom['time'][-1]==50.01
 
 
-def test_scan_preserves_different_filters_and_leds(tmp_path):
+def test_scan_forces_filter_off_and_leds(tmp_path):
     e=Engine(tmp_path);e.connect()
     try:
         e.router.route(1,'A1',True);e.router.route(2,'C1',False);e.router.disconnect()
@@ -58,11 +58,11 @@ def test_scan_preserves_different_filters_and_leds(tmp_path):
         end=time.monotonic()+10
         while e.scan_worker and time.monotonic()<end:time.sleep(.01)
         assert state['state']=='completed',state.get('error')
-        assert state['settings']['channel_filters']=={'1':True,'2':False}
+        assert state['settings']['channel_filters']=={'1':False,'2':False}  # ON before the scan is overridden
         for r in state['results']:
-            assert r['filter_on']==(r['channel']==1)
+            assert r['filter_on'] is False
             assert r['impedance_ohm']==pytest.approx(abs(e.cal.value('pt',1000)),rel=.001)
-        assert e.router.filters=={1:True,2:False}
+        assert e.router.filters=={1:False,2:False}
         e.load(Stimulus());assert e.status()['devices'][0]['state']=='armed'
         e.stop();assert e.status()['devices'][0]['state']=='ready'
     finally:e.close()
@@ -80,7 +80,7 @@ def test_scope_automatic_range_and_normal_polarity():
     channels=[SimpleNamespace(enabled=False,trigger=SimpleNamespace(enabled=True),is_differential=True,
         coupling=None,auto_ranging=False,has_safeground=True,safeground_enabled=True,range=.2+i) for i in range(4)]
     scope=SimpleNamespace(channels=channels,trigger_inputs=[],trigger=SimpleNamespace(timeout=8),
-        stop=lambda:None,start=lambda:None,record_length_max=100000,is_data_ready=True)
+        stop=lambda:None,start=lambda:None,record_length_max=100000,is_data_ready=True,is_running=False)
     scope.get_data=lambda:[np.sin(2*np.pi*np.arange(scope.record_length)/50) for _ in range(4)]
     adapter=HardwareScope(SimpleNamespace(MM_BLOCK=1,CK_DCV=1),scope,'TEST')
     s=Scan(cycles=10,sample_rate_hz=50000)

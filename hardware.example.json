@@ -14,6 +14,8 @@
   "arduino_port": "",
   "generators": {"1": "", "2": ""},
   "scope_serial": "",
+  "scope_address": "",
+  "monitor_resistor_ohm": 10,
   "min_frequency_hz": null,
   "max_frequency_hz": null,
   "max_current_ma": null,

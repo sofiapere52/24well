@@ -2,6 +2,20 @@
 
 This record distinguishes software verification from physical acceptance.
 
+## GUI review fixes and tab-independent runs — 2026-10-05 (r7)
+
+Fixed: finished queues stayed enabled (new entries started immediately; manual
+Load refused); repeated single-well blocks without OFF time missed deadlines;
+queue failures were not shown in the error line; stale load status after Start;
+unrelated errors shown under Add to queue; raw JSON or parse errors instead of
+server messages. The launcher server now keeps running while output, a scan or
+an enabled queue is active, and exits once idle with no tab or via Shut down.
+211 Python tests passed (17.06 s). Simulation browser check on a temporary data
+folder: readable validation errors, minimum-gap rejection, auto-pause, failure
+banner, and a 20 s run that completed with no tab open before the server exited.
+Not verified: Node checks (Node not installed), the confirm dialog of Shut down
+in a browser, and any physical hardware (locked; no `hardware.json`).
+
 ## Cached interface and stale warning fix — 2026-10-01
 
 The live server and disk interface both reported r6 while a browser displayed a

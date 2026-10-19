@@ -1,5 +1,5 @@
 "use strict";
-const UI_REVISION = '20261001-r6';
+const UI_REVISION = '20261019-r19';
 let revisionWarning = null;
 
 function updateRevisionWarning(serverRevision, target) {

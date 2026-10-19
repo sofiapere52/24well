@@ -46,12 +46,18 @@ def phasor(t, values, frequency):
     z = complex(coef[0], -coef[1])
     noise = float(np.sqrt(np.mean(residual**2)))
     snr = float(20*np.log10(max(abs(z)/np.sqrt(2), 1e-15)/max(noise, 1e-15)))
-    return z, snr, float(coef[2])
+    # Precision of the fitted amplitude itself: broadband noise averages down over the record.
+    estimate = float(20*np.log10(max(abs(z), 1e-15)/max(noise*np.sqrt(2/len(t)), 1e-15)))
+    return z, snr, float(coef[2]), estimate
 
 
 def analyze(t, monitor, voltage, frequency, arm_z, monitor_limit, voltage_limit,
-            min_current_a=1e-6, min_snr_db=20, max_drift=.1):
-    """Physical-unit, polarity-corrected arrays. Thresholds require bench acceptance."""
+            min_current_a=1e-6, min_snr_db=20, max_drift=.1, monitor_ohm=10., monitor_leak=0j):
+    """Physical-unit, polarity-corrected arrays. Thresholds require bench acceptance.
+
+    min_snr_db applies to the precision of each fitted 1-tone amplitude (signal over its
+    estimation noise). The broadband signal-to-noise ratios are reported alongside.
+    monitor_leak is the open-circuit monitor/voltage phasor ratio, removed before dividing."""
     t, monitor, voltage = map(np.asarray, (t, monitor, voltage))
     flags = []
     if len(t)<20 or len(t)!=len(monitor) or len(t)!=len(voltage) or not all(np.all(np.isfinite(a)) for a in (t, monitor, voltage)):
@@ -60,17 +66,17 @@ def analyze(t, monitor, voltage, frequency, arm_z, monitor_limit, voltage_limit,
         return {"quality": "invalid", "flags": ["nonmonotonic_time"], "impedance_ohm": None}
     if max(abs(monitor)) >= .98*monitor_limit or max(abs(voltage)) >= .98*voltage_limit:
         flags.append("clipped_or_near_range")
-    mi, snri, offset_i = phasor(t, monitor, frequency)
-    v, snrv, offset_v = phasor(t, voltage, frequency)
-    current = mi/10
+    mi, snri, offset_i, esti = phasor(t, monitor, frequency)
+    v, snrv, offset_v, estv = phasor(t, voltage, frequency)
+    current = (mi-monitor_leak*v)/monitor_ohm
     if abs(current)<min_current_a:
         flags.append("insufficient_current")
-    if min(snri, snrv)<min_snr_db:
+    if min(esti, estv)<min_snr_db:
         flags.append("low_signal_quality")
     halves=[]
     for sl in (slice(0,len(t)//2), slice(len(t)//2,None)):
-        a, *_ = phasor(t[sl], monitor[sl], frequency)
-        b, *_ = phasor(t[sl], voltage[sl], frequency)
+        a = phasor(t[sl], monitor[sl], frequency)[0]
+        b = phasor(t[sl], voltage[sl], frequency)[0]
         halves.append((a, b))
     for index in (0,1):
         if abs(halves[0][index]-halves[1][index]) > max_drift*max(abs(halves[0][index]),1e-15):
@@ -84,8 +90,12 @@ def analyze(t, monitor, voltage, frequency, arm_z, monitor_limit, voltage_limit,
             "phase_deg": None if flags else float(np.angle(z,deg=True)),
             "resistance_ohm": None if flags else z.real,
             "reactance_ohm": None if flags else z.imag,
+            # Voltage across the well itself (PCB arms excluded) = well impedance x well current.
+            "well_voltage_peak_v": None if flags else abs(z*current),
             "current_peak_a": abs(current), "voltage_peak_v": abs(v),
             "current_phase_deg": float(np.angle(current,deg=True)),
             "voltage_phase_deg": float(np.angle(v,deg=True)),
-            "monitor_snr_db": snri, "voltage_snr_db": snrv,
+            "monitor_snr_db": esti, "voltage_snr_db": estv,
+            "monitor_broadband_snr_db": snri, "voltage_broadband_snr_db": snrv, "monitor_ohm": monitor_ohm,
+            "open_correction_a": abs(monitor_leak*v)/monitor_ohm,
             "monitor_offset_v": offset_i, "voltage_offset_v": offset_v}

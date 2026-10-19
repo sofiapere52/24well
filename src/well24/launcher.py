@@ -1,4 +1,4 @@
-"""One local server whose lifetime follows the last GUI browser tab."""
+"""One local server that closes once idle with no GUI browser tab open."""
 import asyncio
 import json
 import socket
@@ -64,9 +64,13 @@ def main():
             sock.bind(('127.0.0.1', 8002))
         except OSError:
             return 0 if open_existing() else 1
-        print('Close the last GUI tab/window to stop operations and shut down the server.')
-        print('Refresh is allowed a 3-second reconnect grace period.')
-        asyncio.run(serve(sock))
+        print('Closing the GUI tab does not stop stimulation; use STOP ALL in the GUI.')
+        print('The server closes itself 3 seconds after it is idle with no GUI tab open,')
+        print('or immediately with "Shut down server" in the GUI.')
+        # Selector loop: on Windows the default Proactor loop permanently closes the listening
+        # socket when one client aborts during accept (WinError 64), so the GUI and STOP could
+        # no longer reach a server that is still running stimulation.
+        asyncio.run(serve(sock), loop_factory=asyncio.SelectorEventLoop)
     return 0
 
 

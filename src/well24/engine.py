@@ -6,15 +6,32 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 import numpy as np
-from .models import Stimulus, Scan, WELLS
+from .models import Stimulus, Scan, WELLS, require_repeat_gap
 from .queue_summary import summarize
 from .store import Store, now, replace_file
 from .power import KeepAwake
 from .routing import MockRouter, SerialRouter, RoutingFault
 from .devices import MockGenerator, MockScope, discover, open_scope, wait
-from .impedance import Calibration, analyze, ROOT
+from .impedance import Calibration, analyze, phasor, ROOT
 
 ACTIVE = {"loading","waiting_trigger","running"}
+# HS5 relay close (~0.29 s) + PCB route, measured 2026-10-19, plus margin.
+ROUTE_LEAD_S = 0.6
+
+
+def missing_hs5_message(profile,channels):
+    wanted=", ".join(f"HS5 {ch} = serial {profile.get('generators',{}).get(str(ch)) or 'not set'}" for ch in channels)
+    try: seen=", ".join(f"{item.name} {item.serial_number}" for item in visible_tiepie_devices()) or "none"
+    except Exception as exc: seen=f"unknown ({exc})"
+    return (f"Configured HS5 not available ({wanted}). TiePie devices this program can use: {seen}. "
+            "If Windows shows the HS5 but it is not listed, another program has it open (the HS5 GUI, MATLAB or "
+            "TiePie Multi Channel): close it and press Connect devices again.")
+
+
+def visible_tiepie_devices():
+    import libtiepie as lt
+    lt.device_list.update()
+    return list(lt.device_list)
 
 
 class Engine:
@@ -29,7 +46,7 @@ class Engine:
                 self.store.save(job)
                 self.store.event(job["id"],"interrupted",{"reason":"application_restart","params":job["params"]})
         self.store.repair_exports()
-        self.mode="disconnected";self.profile={};self.generators={};self.router=None;self.scope=None
+        self.mode="disconnected";self.profile={};self.generators={};self.router=None;self.scope=None;self.notice=None
         self.loaded={};self.reserved={};self.workers={};self.queue_enabled=set()
         self.scan_state=None;self.scan_worker=None
         for path in sorted((self.store.root/"scans").glob("*/scan.json")):
@@ -59,8 +76,10 @@ class Engine:
         if scan: required += ["scan_accepted","differential_wiring_verified","scan_current_validated"]
         if p and (p.trigger_in or p.trigger_out or p.trigger_stim): required += ["triggers_verified"]
         if p and len(p.wells)==2: required += ["well_switching_verified"]
-        if any(self.profile.get(k) is not True for k in required) or not self.profile.get("acceptance_record"):
-            raise ValueError("Physical operation locked: complete the bench acceptance record and hardware profile first")
+        missing=[k for k in required if self.profile.get(k) is not True]+([] if self.profile.get("acceptance_record") else ["acceptance_record"])
+        if missing:
+            raise ValueError("Physical operation locked: complete the bench acceptance record and hardware profile first. "
+                             "Not yet confirmed in hardware.json: "+", ".join(missing))
         for name in ("min_frequency_hz","max_frequency_hz","max_current_ma","max_output_peak_v"):
             if not isinstance(self.profile.get(name),(int,float)) or not np.isfinite(self.profile[name]) or self.profile[name]<=0:
                 raise ValueError(f"Hardware profile requires a verified positive {name}")
@@ -81,25 +100,68 @@ class Engine:
             if self.workers or self.scan_worker or self.loaded:
                 raise ValueError("Stop active operations and unload before reconnecting")
             self.queue_enabled.clear()
-            self._close_devices()
+            self._close_devices();self.notice=None
             if mode=="simulation":
                 self.generators={ch:MockGenerator(ch) for ch in channels}
                 self.router=MockRouter();self.scope=MockScope();self.mode=mode
             elif mode=="hardware":
                 path=ROOT/"hardware.json"
-                if not path.exists(): raise ValueError("Create hardware.json from hardware.example.json after review")
-                self.profile=json.loads(path.read_text(encoding="utf-8"))
+                if not path.exists():
+                    raise ValueError("Physical hardware is not set up on this PC: hardware.json is missing. "
+                                     "Copy hardware.example.json to hardware.json, enter the HS5 serial numbers and the "
+                                     "Arduino COM port, and complete the bench acceptance record. Use Simulation to test without hardware.")
+                try: self.profile=json.loads(path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"hardware.json is not valid JSON (line {exc.lineno}, column {exc.colno}): {exc.msg}") from exc
                 self.mode=mode
+                # Connecting only opens devices with output off; acceptance is
+                # enforced by _gate on every load, queue start and scan.
                 try:
-                    self._gate()
                     self.generators=discover(self.profile)
-                    if not self.generators: raise ValueError("No configured HS5 connected")
-                    self.router=SerialRouter(self.profile["arduino_port"],self.shared_fault)
+                    missing=[ch for ch in (1,2) if self.profile.get("generators",{}).get(str(ch)) and ch not in self.generators]
+                    if not self.generators:
+                        raise ValueError(missing_hs5_message(self.profile,missing or [1,2]))
+                    # One stimulator is enough; the other channel stays unavailable until reconnect.
+                    if missing:
+                        self.notice=(f"Connected with {len(self.generators)} stimulator: HS5 {', '.join(map(str,missing))} "
+                                     "not found, so its channel is unavailable. Plug it in and press Connect devices to use it.")
+                    port=self.profile.get("arduino_port")
+                    if port:
+                        self.router=self._open_router(port)
                 except Exception:
                     self._close_devices();raise
             else: raise ValueError("Unknown connection mode")
             self.error=None
             return self.status()
+
+    def _open_router(self,port):
+        try: return SerialRouter(port,self.shared_fault)
+        except RoutingFault as exc:
+            raise RuntimeError(f"Arduino on {port} opened but did not answer correctly: {exc}. "
+                               "Check that well24.ino (protocol V2) is uploaded and nothing else uses the port.") from exc
+        except Exception as exc:
+            raise RuntimeError(f"Cannot open the Arduino on {port}: {exc}. Check the USB cable to the Arduino DUE "
+                               "Programming port, the COM number in Device Manager, and close the Arduino IDE "
+                               "Serial Monitor or any other program using that port.") from exc
+
+    def connect_scope(self):
+        with self.lock:
+            if self.mode=="disconnected": raise ValueError("Connect devices first, then connect the scope")
+            if self.scan_worker: raise ValueError("Stop the scan before reconnecting the scope")
+            if self.scope is None:
+                try: self.scope=open_scope(self.profile)
+                except Exception as exc:
+                    raise RuntimeError(f"Cannot open the scope: {exc}. Close any other TiePie software using it.") from exc
+            return self.status()
+
+    def scope_status(self):
+        if self.scope is None: return {"state":"disconnected","label":"Not connected","detail":None}
+        return {"state":"ready","label":"Simulated" if self.mode=="simulation" else "Connected","detail":" · ".join(str(x) for x in (getattr(self.scope,"serial",None),getattr(self.scope,"via",None)) if x)}
+
+    def _require_router(self):
+        if self.router is None:
+            raise ValueError("Arduino PCB is not connected, so no well can be routed. Plug in the Arduino DUE "
+                             "Programming port, set arduino_port in hardware.json, and press Connect devices again.")
 
     def _close_devices(self):
         failures=[]
@@ -114,7 +176,8 @@ class Engine:
 
     def status(self):
         with self.lock:
-            return {"app_revision":"20261001-r6","mode":self.mode,"devices":[{"channel":ch,"serial":g.serial,"name":getattr(g,"name","TiePie engineering HS5"),"busy":ch in self.workers, "state":self.device_state(ch)} for ch,g in self.generators.items()],
+            return {"app_revision":"20261019-r19","mode":self.mode,
+                    "arduino":self.router.health() if self.router else {"state":"disconnected","label":"Not connected","detail":None},"scope":self.scope_status(),"notice":self.notice,"devices":[{"channel":ch,"serial":g.serial,"name":getattr(g,"name","TiePie engineering HS5"),"busy":ch in self.workers, "state":self.device_state(ch)} for ch,g in self.generators.items()],
                     "queue_summary":summarize(self.jobs,{key:time.monotonic()-value for key,value in self.run_clocks.items()}),
                     "filters":dict(self.router.filters) if self.router and not self.router.failed else {},
                     "jobs":json.loads(json.dumps([j for j in self.jobs if not j.get('archived')])),"queue_enabled":sorted(self.queue_enabled),
@@ -141,6 +204,7 @@ class Engine:
 
     def enqueue(self,p):
         if p.duration_s is None: raise ValueError("Queued entries need repetitions or a finite stimulation time")
+        require_repeat_gap(p)
         with self.lock:
             job=self.new_job(p,"queue");self.jobs.append(job);self.event(job,"queued")
             return job
@@ -181,6 +245,8 @@ class Engine:
         if p.channel not in self.generators: raise ValueError("Selected configured stimulator is unavailable")
         if p.channel in self.workers or p.channel in self.loaded: raise ValueError("Channel busy or already loaded")
         if any(w in self.reserved for w in p.wells): raise ValueError("Selected well is reserved")
+        require_repeat_gap(p)
+        self._require_router()
         self._gate(p)
         for well in p.wells: self.reserved[well]=ident
 
@@ -231,9 +297,22 @@ class Engine:
         with self.lock:
             if self.scan_worker: raise ValueError("Scan is active")
             if self.error: raise ValueError("Reconnect/recover hardware before resuming queues")
+            if len(channels)>1:  # "Run both" uses whichever stimulators are connected
+                channels=[ch for ch in channels if ch in self.generators] or channels
             for ch in channels:
                 if ch not in self.generators: raise ValueError(f"HS5 {ch} is unavailable")
-            self.queue_enabled.update(channels)
+            pending=[ch for ch in channels if self._next_queued(ch)]
+            if not pending:
+                raise ValueError(f"No pending entries in the HS5 {' / HS5 '.join(map(str,channels))} queue")
+            self.queue_enabled.update(pending)
+
+    def _next_queued(self,ch):
+        return next((j for j in self.jobs if j["kind"]=="queue" and j["state"]=="queued" and j["params"]["channel"]==ch),None)
+
+    def busy(self):
+        """Output, a scan or an enabled queue must survive the GUI tab closing."""
+        with self.lock:
+            return bool(self.workers or self.scan_worker or self.queue_enabled)
 
     def _dispatch(self):
         while not self.shutdown.wait(.03):
@@ -241,11 +320,13 @@ class Engine:
                 if self.scan_worker: continue
                 for ch in sorted(self.queue_enabled):
                     if ch in self.workers or ch in self.loaded: continue
-                    job=next((j for j in self.jobs if j["kind"]=="queue" and j["state"]=="queued" and j["params"]["channel"]==ch),None)
-                    if not job: continue
-                    p=Stimulus(**job["params"])
-                    if any(w in self.reserved for w in p.wells): continue
+                    job=self._next_queued(ch)
+                    if not job:
+                        # A finished queue pauses itself; later additions wait for Run.
+                        self.queue_enabled.discard(ch);continue
                     try:
+                        p=Stimulus(**job["params"])
+                        if any(w in self.reserved for w in p.wells): continue
                         self._claim(p,job["id"]);self._spawn(job)
                     except Exception as exc:
                         self.queue_enabled.discard(ch);self._release(job["id"])
@@ -297,11 +378,15 @@ class Engine:
                     if timed_end is not None and target+accepted['actual_on_s']>timed_end+1e-9:
                         finished=True;break
                     wait(cancel,0)
-                    route_started=time.monotonic()
-                    g.stop();self.router.disconnect(ch);self.router.route(ch,well,p.filter_on)
-                    route_duration=time.monotonic()-route_started
+                    g.stop();self.router.disconnect(ch)
                     minimum_off=p.pair_off_s if len(p.wells)==2 else p.pre_s+p.post_s
                     earliest=max(target,last_end.get(well,-float('inf'))+minimum_off)
+                    # Close the slow HS5 output relay (~0.3 s) and route only just before the
+                    # start, so a stopped output is not connected to the well for the whole OFF.
+                    wait(cancel,max(0,earliest-ROUTE_LEAD_S-time.monotonic()))
+                    route_started=time.monotonic()
+                    g.enable_output();wait(cancel,0);self.router.route(ch,well,p.filter_on)
+                    route_duration=time.monotonic()-route_started
                     wait(cancel,max(0,earliest-time.monotonic()))
                     elapsed=time.monotonic()-last_end[well] if well in last_end else None
                     lateness=time.monotonic()-target
@@ -421,13 +506,15 @@ class Engine:
             if self.workers or self.loaded or self.scan_worker or self.reserved:
                 raise ValueError("Scan requires all stimulation to be idle and unloaded")
             if not s.wiring_confirmed: raise ValueError("Confirm scope channel assignments and external stimulator readiness first")
+            self._require_router()
             self._gate(scan=True)
             assignments=self.scan_plan(s)
-            try: filters=self.router.verified_filters()
+            try: self.router.verified_filters()  # still confirms the PCB answers with a known state
             except RoutingFault as exc:
                 self.shared_fault(str(exc));raise
-            # Never derive scan filters from frequency or unsent UI settings.
-            s=s.model_copy(update={'channel_filters':{ch:filters[ch] for ch in assignments},'filter_on':None})
+            # Impedance scans always run with the PCB filter OFF (bypassed), whatever the
+            # previous stimulation left set and whatever the UI sends.
+            s=s.model_copy(update={'channel_filters':{ch:False for ch in assignments},'filter_on':None})
             for ch in assignments:
                 self.cal.arms(s.frequency_hz,s.channel_filters[ch])
                 self._gate(Stimulus(channel=ch,frequency_hz=s.frequency_hz,amplitude_ma=s.amplitude_ma,filter_on=s.channel_filters[ch]))
@@ -454,11 +541,37 @@ class Engine:
                            on_s=10/s.frequency_hz,filter_on=s.channel_filters[ch])
                 self.generators[ch].load(p)
             self.router.disconnect()
+            leak={ch:0j for ch in assignments}
+            if self.mode=="hardware":
+                # Open-circuit correction: with every well disconnected no current flows through
+                # the monitor resistor, so whatever CH1 reads is common-mode leakage proportional
+                # to the stimulator voltage. Measure that ratio once and subtract it per well.
+                for ch in assignments: self.generators[ch].enable_output()
+                for ch in assignments:
+                    with self.lock:
+                        wait(cancel,0);self.generators[ch].start(continuous=True)
+                wait(cancel,s.settling_s)
+                t,records,acquisition=self.scope.capture(s,{ch:"OPEN" for ch in assignments},self.cal,cancel)
+                for ch in assignments: self.generators[ch].stop()
+                state["open_correction"]={}
+                for ch in assignments:
+                    record=records[ch]
+                    with (folder/f"OPEN_HS5_{ch}.csv").open("w",newline="",encoding="utf-8") as raw:
+                        writer=csv.writer(raw);writer.writerow(["time_s","monitor_v","stimulator_voltage_v"])
+                        writer.writerows(zip(t,record["monitor"],record["voltage"]))
+                    m=phasor(t,record["monitor"],s.frequency_hz)[0];v=phasor(t,record["voltage"],s.frequency_hz)[0]
+                    leak[ch]=m/v if abs(v)>0 else 0j
+                    state["open_correction"][str(ch)]={"monitor_per_volt":abs(leak[ch]),"phase_deg":float(np.angle(leak[ch],deg=True)),
+                                                       "open_voltage_peak_v":abs(v),"raw_file":f"OPEN_HS5_{ch}.csv"}
+                self._save_scan(folder,state)
             for index in range(max(map(len,assignments.values()))):
                 wait(cancel,0)
                 pair={ch:wells[index] for ch,wells in assignments.items() if index<len(wells)}
                 for ch,well in pair.items():
-                    self.generators[ch].stop();self.router.disconnect(ch);self.router.route(ch,well,s.channel_filters[ch])
+                    # Close the slow HS5 relay while disconnected and outside the engine lock,
+                    # so its switching transient never reaches a well and STOP is not blocked.
+                    self.generators[ch].stop();self.router.disconnect(ch);self.generators[ch].enable_output()
+                    wait(cancel,0);self.router.route(ch,well,s.channel_filters[ch])
                 for ch in pair:
                     with self.lock:
                         wait(cancel,0);self.generators[ch].start(continuous=True)
@@ -473,8 +586,13 @@ class Engine:
                         writer=csv.writer(raw);writer.writerow(["time_s","monitor_v","stimulator_voltage_v"])
                         writer.writerows(zip(t,record["monitor"],record["voltage"]))
                     thresholds=self.profile.get("scan_quality",{}) if self.mode=="hardware" else {}
+                    # Current-sense resistor (R1/R3 on the PCB); the hardware value must be measured.
+                    # DS5 rear monitor: 1 V per 10 mA = 100 V/A. The open correction removes the
+                    # parallel-path share of that total current.
+                    monitor_ohm=10. if self.mode!="hardware" else 100. if s.pairs[ch].current_source=="ds5" else float(self.profile.get("monitor_resistor_ohm",10))
                     result=analyze(t,record["monitor"],record["voltage"],s.frequency_hz,self.cal.arms(s.frequency_hz,s.channel_filters[ch]),
-                                   record["monitor_limit"],record["voltage_limit"],**thresholds)
+                                   record["monitor_limit"],record["voltage_limit"],monitor_ohm=monitor_ohm,
+                                   monitor_leak=leak[ch],**thresholds)
                     result.update({"scan_id":ident,"well":well,"channel":ch,"timestamp":now(),"raw_file":raw_name,
                                    "calibration_version":self.cal.version,"frequency_hz":s.frequency_hz,
                                    "command_current_peak_ma":s.amplitude_ma,"filter_on":s.channel_filters[ch],
@@ -512,8 +630,8 @@ class Engine:
     def _save_scan(folder,state):
         temp=folder/"scan.tmp"
         temp.write_text(json.dumps(state,indent=2),encoding="utf-8");replace_file(temp,folder/"scan.json")
-        fields=["scan_id","timestamp","well","channel","quality","impedance_ohm","phase_deg","resistance_ohm","reactance_ohm",
-                "frequency_hz","command_current_peak_ma","filter_on","current_peak_a","voltage_peak_v","monitor_snr_db","voltage_snr_db",
+        fields=["scan_id","timestamp","well","channel","quality","impedance_ohm","phase_deg","resistance_ohm","reactance_ohm","well_voltage_peak_v",
+                "frequency_hz","command_current_peak_ma","filter_on","current_peak_a","voltage_peak_v","monitor_snr_db","voltage_snr_db","monitor_broadband_snr_db","voltage_broadband_snr_db","monitor_ohm","open_correction_a",
                 "calibration_version","raw_file","simulation","flags","settings","acquisition"]
         with (folder/"results.tmp").open("w",newline="",encoding="utf-8") as f:
             writer=csv.DictWriter(f,fieldnames=fields,extrasaction="ignore");writer.writeheader()
@@ -533,6 +651,16 @@ class Engine:
         finally:
             self.power.close()
             self.store.close()
+
+    def log_action_failure(self,action,message,status,report=None):
+        """Diagnostics only: a logging problem must not replace the original error."""
+        try:
+            self.store.event("gui","action_failed",{"action":action,"error":message,"status":status})
+            if report:
+                with (self.store.root/"server_errors.log").open("a",encoding="utf-8") as f:
+                    f.write(f"===== {now()} {action}\n{report}\n")
+        except Exception:
+            pass
 
     def set_keep_awake(self,enabled):
         with self.lock:

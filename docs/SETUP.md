@@ -2,6 +2,10 @@
 
 This guide covers the current software. Physical operation still requires every
 applicable item in [ACCEPTANCE.md](ACCEPTANCE.md); it is not bench acceptance.
+**Connect devices** in Physical hardware mode works before acceptance: it opens
+the HS5s with output off, and the Arduino only if `arduino_port` is set in
+`hardware.json`. Load, Start, queues and scans stay blocked until the Arduino is
+connected and every acceptance item is confirmed.
 
 ## Install on Windows
 
@@ -27,11 +31,25 @@ same virtual-environment Python, the vendor USB drivers, and a reviewed local
 `hardware.json`. The example profile intentionally prevents physical operation.
 Do not enable acceptance flags just to make a test pass.
 
+The Arduino DUE needs its own USB connection to this PC (the "Programming" port
+next to the power jack), in addition to the two HS5 cables; use a powered USB
+hub if ports run out. Only one program can hold an HS5: close the HS5 GUI,
+MATLAB sessions using the HS5 and TiePie Multi Channel before Connect devices.
+`.venv\Scripts\python.exe tools\check_hardware.py` lists what this program can
+see without producing output (`--open-hs5` and `--arduino COMx` go further and
+still never enable output or route a well).
+
+Every failed GUI action appears in the live log as `FAILED · <action> · <reason>`
+and in the daily events CSV. Unexpected server errors also write a full report
+to `data/runtime/server_errors.log`.
+
 Both launchers open http://127.0.0.1:8002 after the server is ready. Closing the
-last GUI tab/window stops operations and shuts down the server after a 3-second
-grace period; refreshing/reopening within that period preserves the session.
-Closing one of several GUI tabs leaves the server running. If no GUI connects
-within 60 seconds of startup, the server exits. Keep a GUI tab open during runs.
+GUI tab does not stop running stimulation, scans or enabled queues; use STOP ALL.
+The server shuts down 3 seconds after it is idle (nothing running, no enabled
+queue) with no GUI tab open, or immediately with **Shut down server**, which asks
+for confirmation if anything is active. Starting the launcher again reopens the
+GUI on a running server. If no GUI connects within 60 seconds of startup and
+nothing is running, the server exits.
 Browser crashes or discarded tabs also disconnect the session and may stop runs. Only run one server against a given data directory.
 Keep the server terminal open. Do not use multiple Uvicorn workers or automatic
 reload when instruments are connected.

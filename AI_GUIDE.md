@@ -16,6 +16,9 @@ module/test pair next; do not search generated `data/` or `.venv/` directories.
 ## Invariants to preserve
 
 - Physical acceptance is pending. Keep every hardware gate in `Engine._gate`.
+  Hardware Connect only opens the HS5s (output off) and, if `arduino_port` is
+  set, the Arduino; it is not gated. Every output path (`_claim`, `start_scan`)
+  must call `_require_router` and `_gate`.
 - Stop output before changing a route. Routing uncertainty stops both channels.
 - Reserve both wells for a whole paired entry; never route both outputs to one well.
 - Mark a dispatched job active before releasing the engine lock. Pending-entry
@@ -33,10 +36,14 @@ module/test pair next; do not search generated `data/` or `.venv/` directories.
   shunt once in prediction. Live scans use measured branch current directly.
 - Electric field is V/m: divide well volts by 0.009 m. Do not label it V/mm.
 - Source and calibration are in Git; runtime records and hardware.json are not.
-- Use `python -m well24.launcher` for normal use. The last GUI connection closing
-  aborts operations and exits after 3 seconds; refreshes can reconnect in that
-  window. Do not replace connection tracking with background-tab JS timers.
+- Use `python -m well24.launcher` for normal use. A closed or discarded GUI tab
+  must never stop output: the server exits only when `Engine.busy()` is false and
+  no GUI connection exists for 3 seconds, or via the confirmed shutdown request.
+  Do not replace connection tracking with background-tab JS timers.
   Bind the port before Engine startup so duplicate launches cannot edit records.
+- A queue pauses itself once it has no pending entries; Add to queue never starts
+  output by itself. Single-well entries with more than one block need at least
+  `MIN_REPEAT_GAP_S` of pre+post-off (`require_repeat_gap`).
 
 ## Finish a change
 

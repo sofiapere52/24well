@@ -22,7 +22,7 @@ async function fetchPreview(zoomWindow){
   if(zoomWindow){start=Math.max(0,zoomWindow[0]);end=Math.min(previewState.totalT1,zoomWindow[1]);if(end<=start)throw new Error('Pan back within the protocol time range');}
   const r=await fetch('/api/preview',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({params:config,well:previewWell,start,end}),signal:zoomFetchAbort.signal});
-  const out=await r.json();if(!r.ok)throw new Error(out.detail||'Preview unavailable');
+  const text=await r.text();if(!r.ok)throw new Error(responseError(r,text));const out=JSON.parse(text);
   if(request!==previewRequest||config!==previewParams)throw new DOMException('Stale preview','AbortError');
   $('plotNote').textContent=out.note+` ${out.sample_rate_hz.toLocaleString()} samples/s · ${out.samples.toLocaleString()} samples per on block.`;
   return {...out,t_seconds:out.time,ch1:out.currents_by_well[config.wells[0]],ch2:config.wells[1]?out.currents_by_well[config.wells[1]]:null,y_max:config.amplitude_ma};

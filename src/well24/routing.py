@@ -47,12 +47,20 @@ class MockRouter:
             if self.failed: raise RoutingFault('PCB filter state is unknown; reconnect before scanning')
             return dict(self.filters)
 
+    def health(self):
+        if self.failed: return {'state': 'error', 'label': 'Fault', 'detail': 'Simulated PCB'}
+        return {'state': 'ready', 'label': 'Simulated', 'detail': 'Simulated PCB'}
+
 
 class SerialRouter(MockRouter):
     """Versioned, correlated acknowledgements. Never auto-reconnect after uncertainty."""
+    HEARTBEAT_STALE_S = 3.0
+
     def __init__(self, port, on_fault):
         import serial
         super().__init__()
+        self.port = port
+        self.last_ok = None
         self.serial = serial.Serial(port, 9600, timeout=.1, write_timeout=1)
         self.on_fault = on_fault
         self.sequence = 0
@@ -90,6 +98,7 @@ class SerialRouter(MockRouter):
                     if len(bits) == 3 and bits[0] == request_id:
                         if bits[1] != "OK":
                             raise RoutingFault(bits[2])
+                        self.last_ok = time.monotonic()
                         return bits[2]
                 raise RoutingFault("Arduino acknowledgement timeout")
             except Exception as exc:
@@ -138,6 +147,15 @@ class SerialRouter(MockRouter):
                 raise RoutingFault('Cannot verify existing PCB filter/routing state')
             self.filters={1:parts[2]=='0',2:parts[4]=='0'}
             return dict(self.filters)
+
+    def health(self):
+        # Reads plain attributes only: the router lock can be held for a full
+        # acknowledgement timeout and must not stall status polling.
+        if self.failed: return {'state': 'error', 'label': 'Fault · reconnect', 'detail': self.port}
+        silent = None if self.last_ok is None else time.monotonic() - self.last_ok
+        if silent is None or silent > self.HEARTBEAT_STALE_S:
+            return {'state': 'error', 'label': 'No reply', 'detail': self.port}
+        return {'state': 'ready', 'label': 'Connected', 'detail': self.port}
 
     def close(self):
         self.closing.set()

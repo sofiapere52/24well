@@ -50,9 +50,36 @@ def test_last_tab_grace_refresh_and_startup_timeout():
     assert lifetime.expired()
 
 
+def test_active_work_outlives_closed_tabs_then_idle_grace():
+    clock = [0.]
+    lifetime = BrowserLifetime(lambda: None, clock=lambda: clock[0])
+    lifetime.start()
+    lifetime.detach(lifetime.attach())
+    clock[0] = 3600
+    assert not lifetime.expired(busy=True)
+    clock[0] = 3602
+    assert not lifetime.expired(busy=False)
+    clock[0] = 3603
+    assert lifetime.expired(busy=False)
+
+
+def test_requested_shutdown_stops_engine_with_tab_open():
+    calls = []
+    class Engine:
+        def busy(self): return True
+        def stop(self): calls.append('stop')
+    lifetime = BrowserLifetime(lambda: calls.append('exit'))
+    lifetime.start()
+    lifetime.attach()
+    lifetime.request_shutdown()
+    asyncio.run(lifetime.watch(Engine()))
+    assert calls == ['stop', 'exit']
+
+
 def test_shutdown_requests_exit_even_if_stop_fails():
     calls = []
     class Engine:
+        def busy(self): return False
         def stop(self):
             calls.append('stop')
             raise RuntimeError('device failure')
@@ -65,7 +92,7 @@ def test_shutdown_requests_exit_even_if_stop_fails():
         lifetime.attach()
 
 
-def test_last_browser_disconnect_stops_real_server_and_simulation(tmp_path):
+def test_closed_tabs_keep_running_output_until_stop_then_exit(tmp_path):
     # Real TCP streaming/disconnect and Uvicorn lifespan, with isolated records.
     script = '''
 import socket, uvicorn
@@ -110,6 +137,11 @@ server.run(sockets=[sock])
                 job = client.post('/api/load', json={'on_s': 30}).json()
                 client.post('/api/start', json={'channel': 1, 'entry_id': job['id']}).raise_for_status()
                 assert client.get('/api/status').status_code == 200
+            # No tab is open, but output is running: the server must stay up.
+            time.sleep(1.2)
+            assert process.poll() is None
+            assert client.get('/api/status').json()['devices'][0]['busy']
+            client.post('/api/stop', json={}).raise_for_status()
             process.wait(timeout=10)
         assert process.returncode == 0, process.stderr.read()
         with sqlite3.connect(tmp_path / 'queue.sqlite') as db:
